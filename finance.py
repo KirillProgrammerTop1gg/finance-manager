@@ -8,13 +8,13 @@ exchange_rates: Dict[str, float] = {
     'USD': 1,
 }
 # add tx
-def add_tx(balance_change: float, note: str, currency: str = 'USD', categories: Optional[List[str]] = None) -> str:
+def add_tx(balance_change: float, note: str, currency: str = 'USD', categories: Optional[List[str]] = None, tx_time: int = int(time.time())) -> str:
     id = str(uuid.uuid4())
     if categories == None: categories = []
     amount = round(balance_change/exchange_rates[currency], 2)
     categories.append('дохід' if balance_change > 0 else 'витрати')
     txs[id] = {
-        'time': int(time.time()),
+        'time': tx_time,
         'balance_change': amount,
         'note': note,
         'categories': categories
@@ -38,6 +38,7 @@ def del_txs(ids: str) -> str:
 
 # overvall sum or sum by category
 def sum_txs(txs_list: List[Dict[str, Union[int, float, str, List[str]]]], categories: Optional[List[str]] = None) -> float: return round((txs_list[0]['balance_change'] if (all(category in txs_list[0]['categories'] for category in categories) if categories != None else True) else 0) + sum_txs(txs_list[1:], categories) if len(txs_list) else 0, 2)
+def sum_txs_by_time(txs_list: List[Dict[str, Union[int, float, str, List[str]]]], ts1: int, ts2: int) -> float: return round((txs_list[0]['balance_change'] if int(ts2) >= int(txs_list[0]['time']) and int(txs_list[0]['time']) >= int(ts1) else 0) + sum_txs_by_time(txs_list[1:], ts1, ts2) if len(txs_list) else 0, 2)
 # change or add currency with price
 def change_currency(currency: str, price: float) -> None: exchange_rates[currency] = price
 # del currency

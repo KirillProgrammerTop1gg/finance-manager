@@ -1,13 +1,34 @@
-from user_managment import user_login, user_register
-from finance import add_tx, edit_tx, del_txs, change_currency, del_currency, sum_txs, txs, exchange_rates
-from categories import add_category, del_categories, categories, add_tracker, trackers, del_trackers
+from user_managment import user_login, user_register, users_db
+from finance import add_tx, edit_tx, del_txs, change_currency, del_currency, sum_txs, txs, exchange_rates, sum_txs_by_time
+from categories import add_category, del_categories, categories, add_tracker, trackers, del_trackers, backup_tracker
 from errors import WeakPasswordError
 from InquirerPy import inquirer
 from InquirerPy.base import Choice
-from help_funcs import valid_float, check_any_obj, leave_mode
-import sys, time
+from help_funcs import valid_float, check_any_obj, leave_mode, valid_time, valid_int
+from logging_management import log_error, log_event, log_tx
+from datetime_management import from_ts_to_str, all_week_timestamp, all_day_timestamp, all_month_timestamp
+from reports import create_report, export_report_to_file
+import sys, time, json
 
 print('Вас вітає програма по обліку фінансів')
+
+try:
+    with open('backup.json', mode='r') as f:
+        data = f.read().strip()
+        if data:
+            backup = json.loads(data)
+            users_db.update(backup['users_db'])
+            txs.update(backup['txs'])
+            exchange_rates.update(backup['exchange_rates'])
+            categories.clear()
+            categories.extend(backup['categories'])
+            for cat, data in backup['trackers'].items():
+                backup_tracker(cat, float(data[0]), float(data[1]))
+except FileNotFoundError:
+    pass
+except Exception as e:
+    print(f'Виникла невідома помилка при завантажені бекапа: {e}')
+
 isLogin = True
 # while True:
 #     isLogin = inquirer.select(
@@ -32,7 +53,6 @@ isLogin = True
 #     except Exception as e:
 #         print(f'Виникла невідома помилка: {e}')
 
-print('Вітаємо у системі!')
 while True:
     mode = inquirer.select(
         message="Оберіть яким модулем ви хочете керувати: ",
@@ -45,6 +65,14 @@ while True:
         default=0,
     ).execute()
     if mode == None:
+        with open('backup.json', mode="w") as f:
+            f.write(json.dumps({
+                'users_db': users_db,
+                'txs': txs,
+                'exchange_rates': exchange_rates,
+                'categories': categories,
+                'trackers': {k: trackers[k][3]() for k in trackers}
+            }))
         print('Допобачення!')
         sys.exit()
     elif mode == 0:
@@ -58,6 +86,8 @@ while True:
                     {'name': 'Видалити транзакцію', 'value': 3},
                     {'name': 'Порахувати суму всіх транзакцій', 'value': 4},
                     {'name': 'Порахувати суму транзакцій за категорією', 'value': 5},
+                    {'name': 'Порахувати суму транзакцій у межах за часом', 'value': 6},
+                    {'name': 'Створити звіт за часом та категоріями', 'value': 7},
                     {'name': 'Вихід', 'value': None}
                 ],
                 default=0,
@@ -67,13 +97,13 @@ while True:
                 if check_any_obj(len(txs) == 0, 'Додайте хоча-б одну транзакцію!'): continue
                 tx = inquirer.select(
                     message="Оберіть транзакцію для детальнішого просмотру: ",
-                    choices=[{'name': f'{id} - {txs[id]['balance_change']} USD', 'value': id} for id in txs.keys()]+[{'name': 'вихід', 'value': None}],
+                    choices=[{'name': f'{id} --- {from_ts_to_str(txs[id]['time'])} - {txs[id]['balance_change']} USD', 'value': id} for id in txs.keys()]+[{'name': 'вихід', 'value': None}],
                     default=list(txs.keys())[0],
                 ).execute()
                 if tx == None: continue
                 print(f'''
 Транзакція {tx}
-Дата: {time.strftime('%Y-%m-%d, %H:%M:%S', time.localtime(txs[tx]['time']))}
+Дата: {from_ts_to_str(txs[tx]['time'])}
 Змінення балансу у USD: {txs[tx]['balance_change']}
 Нотатка: {txs[tx]['note']}
 Категорії: {''.join([f'\n- {x}' for x in txs[tx]['categories']])}
@@ -95,13 +125,15 @@ while True:
                         
                     ).execute()
                 note = input('Нотатка: ')
-                id, am = add_tx(amount, note, currency, tx_categories)
-                print(f'Транзакція успішно додана з id: {id}, {amount} {currency} = {am} USD')
+                tx_time, tx_timestamp = valid_time('Час транзакції (dd.mm.yyyy hh:mm): ')
+                id, am = add_tx(amount, note, currency, tx_categories, tx_timestamp)
+                print(f'Транзакція успішно додана з id: {id}, {amount} {currency} = {am} USD у {tx_time}')
+                log_tx(id,am,note,tx_categories,tx_time)
             elif action == 2:
                 if check_any_obj(len(txs) == 0, 'Додайте хоча-б одну транзакцію!'): continue
                 tx = inquirer.select(
                     message="Оберіть транзакцію для подальшої змінги: ",
-                    choices=[{'name': f'{id} - {txs[id]['balance_change']} USD', 'value': id} for id in txs.keys()]+[{'name': 'вихід', 'value': None}],
+                    choices=[{'name': f'{id} --- {from_ts_to_str(txs[id]['time'])} - {txs[id]['balance_change']} USD', 'value': id} for id in txs.keys()]+[{'name': 'вихід', 'value': None}],
                     default=list(txs.keys())[0],
                 ).execute()
                 if tx == None: continue
@@ -111,6 +143,7 @@ while True:
                         {'name': 'к-сть USD', 'value': 0},
                         {'name': 'категорії', 'value': 1},
                         {'name': 'нотатку', 'value': 2},
+                        {'name': 'час', 'value': 3}
                     ],
                 ).execute()
                 for upd in upds_act:
@@ -132,6 +165,10 @@ while True:
                         print(f'Зараз нотатка: {txs[tx]['note']}')
                         new_note = input('Введіть нову нотатку: ')
                         edit_tx(tx, note = new_note)
+                    elif upd == 3:
+                        print(f'Зараз час: {from_ts_to_str(txs[tx]['time'])}')
+                        new_time, new_timestamp = valid_time('Введіть новий час транзакції  (dd.mm.yyyy hh:mm): ')
+                        edit_tx(tx, time=new_timestamp)
             elif action == 3:
                 if check_any_obj(len(txs) == 0, 'Додайте хоча-б одну транзакцію!'): continue
                 txs2del = []
@@ -143,6 +180,64 @@ while True:
                         
                     ).execute()
                 if not None in txs2del: print(del_txs(txs2del))
+            elif action == 7:
+                opts = []
+                while opts == []:
+                    opts = inquirer.checkbox(
+                        message="Оберіть за якими даними хотіти зробити звіт (пробіл - додати/зняти вибір, ентер - пітвердити): ",
+                        choices=[{'name': 'За часом', 'value': 0}, {'name': 'За категоріями', 'value': 1}]
+                    ).execute()
+                selected_timestamp_1 = 0
+                selected_timestamp_2 = 2114373600
+                selected_categories = None
+                for opt in opts:
+                    if opt:
+                        while selected_categories == [] or selected_categories == None:
+                            print('Додайте хоча-б одну категорію')
+                            selected_categories = inquirer.checkbox(
+                                message="Оберіть категорії (пробіл - додати/зняти вибір, ентер - пітвердити): ",
+                                choices=categories,
+                            ).execute()
+                    else:
+                        time_assistance_mode = inquirer.select(
+                            message='За який період сформувати звіт: ',
+                            choices=[
+                                {'name': 'Ввести самому', 'value': 0},
+                                {'name': 'За цей місяць', 'value': 1},
+                                {'name': 'За цей тиждень', 'value': 2},
+                                {'name': 'За цей день', 'value': 3},
+                                {'name': 'За весь період', 'value': 4},
+                            ]
+                        ).execute()
+                        if time_assistance_mode == 0:
+                            while True:
+                                selected_time_1, selected_timestamp_1 = valid_time('Рахувати транзакції від (dd.mm.yyyy hh:mm): ')
+                                selected_time_2, selected_timestamp_2 = valid_time('Рахувати транзакції до (dd.mm.yyyy hh:mm): ')
+                                if selected_timestamp_1 < selected_timestamp_2: break
+                                else: print('Час до повинен бути більшим за час від!')
+                        elif time_assistance_mode == 1:
+                            selected_timestamp_1, selected_timestamp_2 = all_month_timestamp()
+                        elif time_assistance_mode == 2:
+                            selected_timestamp_1, selected_timestamp_2 = all_week_timestamp()
+                        elif time_assistance_mode == 3:
+                            selected_timestamp_1, selected_timestamp_2 = all_day_timestamp()
+                txs_amount = valid_int('Введіть скільки треба останіх транзакцій показати: ')
+                report = create_report(selected_timestamp_1, selected_timestamp_2, txs_amount, selected_categories)
+                if not report:
+                    print("Нічого не знайдено!")
+                    continue
+                print(f'\n{report}\n')
+                isSave = inquirer.select(
+                    message="Хочете зберігти звіт у файл: ",
+                    choices=[
+                        {'name': 'Так', 'value': True},
+                        {'name': 'Ні', 'value': False},
+                    ]
+                ).execute()
+                if isSave:
+                    filename = input('Введіть назву файла: ')
+                    export_report_to_file(filename, report[:-14])
+                    print(f'Файл збережн успішно: {filename}.txt')
             else:
                 selected_categories = None
                 if action == 5: 
@@ -151,9 +246,15 @@ while True:
                         selected_categories = inquirer.checkbox(
                             message="Оберіть категорії (пробіл - додати/зняти вибір, ентер - пітвердити): ",
                             choices=categories,
-                            
                         ).execute()
-                sum = sum_txs(list(txs.values()), selected_categories)
+                elif action == 6:
+                    while True:
+                        selected_time_1, selected_timestamp_1 = valid_time('Рахувати транзакції від (dd.mm.yyyy hh:mm): ')
+                        selected_time_2, selected_timestamp_2 = valid_time('Рахувати транзакції до (dd.mm.yyyy hh:mm): ')
+                        if selected_timestamp_1 < selected_timestamp_2: break
+                        else: print('Час до повинен бути більшим за час від!')
+                if action == 6: sum = sum_txs_by_time(list(txs.values()), selected_timestamp_1, selected_timestamp_2)
+                else: sum = sum_txs(list(txs.values()), selected_categories)
                 print(f'Сума всіх транзакцій{f' за категоріями' if selected_categories else ''}: {'+' if sum >= 0 else '-'}{sum} USD')
     elif mode == 1:
         while True:
