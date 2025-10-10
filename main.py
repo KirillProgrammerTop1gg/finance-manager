@@ -30,28 +30,32 @@ except Exception as e:
     print(f'Виникла невідома помилка при завантажені бекапа: {e}')
 
 isLogin = True
-# while True:
-#     isLogin = inquirer.select(
-#         message="Спочатку залогіньтесь або зареєструйтесь: ",
-#         choices=[
-#             {'name': 'Логін', 'value': True},
-#             {'name': 'Реєстрація', 'value': False},
-#             {'name': 'Вихід', 'value': None}
-#         ],
-#         default=isLogin,
-#     ).execute()
-#     if isLogin == None:
-#         print('Допобачення!')
-#         sys.exit()
-#     try:
-#         login = input('Введіть логін: ')
-#         print('Пароль має бути довжиною більше 6 символів, мати велику літеру, спеціальний символ(!@#$%^&*), цифру')
-#         password = input('Введіть пароль: ')
-#         if user_login(login, password) if isLogin else user_register(login, password): break
-#     except WeakPasswordError as e:
-#         print(f'Помилка: пароль, {e}')
-#     except Exception as e:
-#         print(f'Виникла невідома помилка: {e}')
+while True:
+    isLogin = inquirer.select(
+        message="Спочатку залогіньтесь або зареєструйтесь: ",
+        choices=[
+            {'name': 'Логін', 'value': True},
+            {'name': 'Реєстрація', 'value': False},
+            {'name': 'Вихід', 'value': None}
+        ],
+        default=isLogin,
+    ).execute()
+    if isLogin == None:
+        print('Допобачення!')
+        sys.exit()
+    try:
+        login = input('Введіть логін: ')
+        print('Пароль має бути довжиною більше 6 символів, мати велику літеру, спеціальний символ(!@#$%^&*), цифру')
+        password = input('Введіть пароль: ')
+        if user_login(login, password) if isLogin else user_register(login, password):
+            log_event(f"Користувач {'залогінився' if isLogin else 'зареєструвався'}: {login}")
+            break
+    except WeakPasswordError as e:
+        print(f'Помилка: пароль, {e}')
+        log_error(f"WeakPasswordError: {e}")
+    except Exception as e:
+        print(f'Виникла невідома помилка: {e}')
+        log_error(f"Login/Register Error: {e}")
 
 while True:
     mode = inquirer.select(
@@ -110,6 +114,7 @@ while True:
                 \n''')
             elif action == 1:
                 if check_any_obj(len(categories) == 2, 'Спочатку додайте хоча-б одну категорію!'): continue
+                log_event("Додавання транзакція.")
                 amount = valid_float('К-сть валюти (>0 - якщо дохід, <0 - якщо витрати): ')
                 currency = inquirer.select(
                     message="Оберіть валюту транзакції: ",
@@ -131,6 +136,7 @@ while True:
                 log_tx(id,am,note,tx_categories,tx_time)
             elif action == 2:
                 if check_any_obj(len(txs) == 0, 'Додайте хоча-б одну транзакцію!'): continue
+                log_event("Зміна транзакції.")
                 tx = inquirer.select(
                     message="Оберіть транзакцію для подальшої змінги: ",
                     choices=[{'name': f'{id} --- {from_ts_to_str(txs[id]['time'])} - {txs[id]['balance_change']} USD', 'value': id} for id in txs.keys()]+[{'name': 'вихід', 'value': None}],
@@ -171,6 +177,7 @@ while True:
                         edit_tx(tx, time=new_timestamp)
             elif action == 3:
                 if check_any_obj(len(txs) == 0, 'Додайте хоча-б одну транзакцію!'): continue
+                log_event("Видалення транзакцій.")
                 txs2del = []
                 while txs2del == []:
                     print('Оберіть хоча-б одну транзакцію для видалення')
@@ -274,6 +281,7 @@ while True:
                 if len(exchange_rates) == 1: print('Нічого дивитись! Додайте валюти!')
                 for currency, ex_rate in exchange_rates.items(): print(f'{ex_rate} {currency} = 1 USD') if currency != 'USD' else None
             elif action == 3:
+                log_event("Видалення валюти.")
                 if check_any_obj(len(exchange_rates) == 1, 'Нічого видаляти! Додайте валюти!'): continue
                 currencies = []
                 while currencies == []:
@@ -285,6 +293,7 @@ while True:
                 del_currency(currencies)
                 print('Валюта видалена успішно!')
             else:
+                log_event("Додавання або зміна валюти.")
                 if check_any_obj(len(exchange_rates) == 1 and action != 1, 'Нічого замінювати! Додайте валюти!'): continue
                 currency = input('Символ нової валюти: ').upper() if action == 1 else inquirer.select(
                     message="Оберіть валюту: ",
@@ -322,6 +331,7 @@ while True:
                     print(f'    -{tracker[1]()}')
                 print()
             elif action == 2:
+                log_event(f"Додавання категорій.")
                 new_cat = input('Введіть нову категорію: ')
                 add_category(new_cat)
                 isTracker = inquirer.select(
@@ -333,6 +343,7 @@ while True:
                     add_tracker(new_cat, budget_limit)
                     print('Трекер додано успішно')
             elif action == 3:
+                log_event("Видалення категорій.")
                 if check_any_obj(len(categories) == 2, 'Нічого видаляти! Додайте категорії'): continue
                 categories2del = inquirer.checkbox(
                     message="Оберіть категорії для видалення (пробіл - додати/зняти вибір, ентер - пітвердити): ",
@@ -341,6 +352,7 @@ while True:
                 del_categories(categories2del)
                 print('Категорії видалені успішно')
             elif action == 4:
+                log_event("Редагування трекера.")
                 if check_any_obj(len(trackers) == 0, 'Нічого змінювати! Додайте трекери к категоріям'): continue
                 tracker2edit = inquirer.select(
                     message="Оберіть трекер для змінення: ",
@@ -352,6 +364,7 @@ while True:
                 trackers[tracker2edit][2](new_limit)
                 print('Трекер змінені успішно')
             elif action == 5:
+                log_event("Видалення трекерів.")
                 if check_any_obj(len(trackers) == 0, 'Нічого видаляти! Додайте трекери к категоріям'): continue
                 trackers2del = inquirer.checkbox(
                     message="Оберіть трекери для видалення (пробіл - додати/зняти вибір, ентер - пітвердити): ",
