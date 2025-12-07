@@ -1,13 +1,22 @@
 from datetime import datetime, date, timedelta
 import time
 
-from_ts_to_str = lambda ts: time.strftime('%d.%m.%Y %H:%M', time.localtime(ts))
+from_ts_to_str = lambda ts: time.strftime("%d.%m.%Y %H:%M", time.localtime(ts))
+
 
 def all_month_timestamp():
     today = date.today()
-    before = int(datetime.strptime(f'01.{today.month}.{today.year}', '%d.%m.%Y').timestamp())
-    after = int((datetime(today.year + (today.month == 12), (today.month % 12) + 1, 1) - timedelta(days=1)).timestamp())
+    before = int(
+        datetime.strptime(f"01.{today.month}.{today.year}", "%d.%m.%Y").timestamp()
+    )
+    after = int(
+        (
+            datetime(today.year + (today.month == 12), (today.month % 12) + 1, 1)
+            - timedelta(days=1)
+        ).timestamp()
+    )
     return before, after
+
 
 def all_week_timestamp():
     today = date.today()
